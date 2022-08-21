@@ -17,11 +17,22 @@
 * You should have received a copy of the GNU General Public License
 * along with ORB-SLAM2. If not, see <http://www.gnu.org/licenses/>.
 */
+#include "Frame.h"   // IWYU pragma: associated
 
-#include "Frame.h"
+#include <ext/alloc_traits.h>
+#include <ext/new_allocator.h>
+#include <limits.h>
+#include <math.h>
+#include <opencv2/calib3d.hpp>
+#include <thread>
+#include <algorithm>
+#include <memory>
+#include <utility>
+
 #include "Converter.h"
 #include "ORBmatcher.h"
-#include <thread>
+#include "MapPoint.h"
+#include "ORBextractor.h"
 
 namespace ORB_SLAM2
 {
@@ -41,8 +52,9 @@ Frame::Frame(const Frame &frame)
      mTimeStamp(frame.mTimeStamp), mK(frame.mK.clone()), mDistCoef(frame.mDistCoef.clone()),
      mbf(frame.mbf), mb(frame.mb), mThDepth(frame.mThDepth), N(frame.N), mvKeys(frame.mvKeys),
      mvKeysRight(frame.mvKeysRight), mvKeysUn(frame.mvKeysUn),  mvuRight(frame.mvuRight),
-     mvDepth(frame.mvDepth), mBowVec(frame.mBowVec), mFeatVec(frame.mFeatVec),
+     mvDepth(frame.mvDepth), mBowVec(frame.mBowVec), mFeatVec(frame.mFeatVec), mSemBowVec(frame.mSemBowVec), mSemFeatVec(frame.mSemFeatVec),
      mDescriptors(frame.mDescriptors.clone()), mDescriptorsRight(frame.mDescriptorsRight.clone()),
+     mSemDescriptors(frame.mSemDescriptors.clone()), mSemDescriptorsRight(frame.mSemDescriptorsRight.clone()),
      mvpMapPoints(frame.mvpMapPoints), mvbOutlier(frame.mvbOutlier), mnId(frame.mnId),
      mpReferenceKF(frame.mpReferenceKF), mnScaleLevels(frame.mnScaleLevels),
      mfScaleFactor(frame.mfScaleFactor), mfLogScaleFactor(frame.mfLogScaleFactor),
@@ -75,8 +87,8 @@ Frame::Frame(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timeSt
     mvInvLevelSigma2 = mpORBextractorLeft->GetInverseScaleSigmaSquares();
 
     // ORB extraction
-    thread threadLeft(&Frame::ExtractORB,this,0,imLeft);
-    thread threadRight(&Frame::ExtractORB,this,1,imRight);
+    thread threadLeft(&Frame::ExtractORB,this,0,imLeft, cv::Mat());
+    thread threadRight(&Frame::ExtractORB,this,1,imRight, cv::Mat());
     threadLeft.join();
     threadRight.join();
 
@@ -115,7 +127,7 @@ Frame::Frame(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timeSt
 
     AssignFeaturesToGrid();
 }
-
+/*
 Frame::Frame(const cv::Mat &imGray, const cv::Mat &imDepth, const double &timeStamp, ORBextractor* extractor,ORBVocabulary* voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth)
     :mpORBvocabulary(voc),mpORBextractorLeft(extractor),mpORBextractorRight(static_cast<ORBextractor*>(NULL)),
      mTimeStamp(timeStamp), mK(K.clone()),mDistCoef(distCoef.clone()), mbf(bf), mThDepth(thDepth)
@@ -133,7 +145,7 @@ Frame::Frame(const cv::Mat &imGray, const cv::Mat &imDepth, const double &timeSt
     mvInvLevelSigma2 = mpORBextractorLeft->GetInverseScaleSigmaSquares();
 
     // ORB extraction
-    ExtractORB(0,imGray);
+    ExtractORB(0,imGray, imGray);
 
     N = mvKeys.size();
 
@@ -169,9 +181,9 @@ Frame::Frame(const cv::Mat &imGray, const cv::Mat &imDepth, const double &timeSt
 
     AssignFeaturesToGrid();
 }
+*/
 
-
-Frame::Frame(const cv::Mat &imGray, const double &timeStamp, ORBextractor* extractor,ORBVocabulary* voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth)
+Frame::Frame(const cv::Mat &imGray, const cv::Mat &label, const double &timeStamp, ORBextractor* extractor,ORBVocabulary* voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth)
     :mpORBvocabulary(voc),mpORBextractorLeft(extractor),mpORBextractorRight(static_cast<ORBextractor*>(NULL)),
      mTimeStamp(timeStamp), mK(K.clone()),mDistCoef(distCoef.clone()), mbf(bf), mThDepth(thDepth)
 {
@@ -188,7 +200,7 @@ Frame::Frame(const cv::Mat &imGray, const double &timeStamp, ORBextractor* extra
     mvInvLevelSigma2 = mpORBextractorLeft->GetInverseScaleSigmaSquares();
 
     // ORB extraction
-    ExtractORB(0,imGray);
+    ExtractORB(0, imGray, label);
 
     N = mvKeys.size();
 
@@ -244,12 +256,12 @@ void Frame::AssignFeaturesToGrid()
     }
 }
 
-void Frame::ExtractORB(int flag, const cv::Mat &im)
+void Frame::ExtractORB(int flag, const cv::Mat &im, const cv::Mat &label)
 {
     if(flag==0)
-        (*mpORBextractorLeft)(im,cv::Mat(),mvKeys,mDescriptors);
+        (*mpORBextractorLeft)(im, label, cv::Mat(),mvKeys,mDescriptors, mSemDescriptors);
     else
-        (*mpORBextractorRight)(im,cv::Mat(),mvKeysRight,mDescriptorsRight);
+        (*mpORBextractorRight)(im, label, cv::Mat(),mvKeysRight,mDescriptorsRight, mSemDescriptorsRight);
 }
 
 void Frame::SetPose(cv::Mat Tcw)
@@ -398,6 +410,9 @@ void Frame::ComputeBoW()
     {
         vector<cv::Mat> vCurrentDesc = Converter::toDescriptorVector(mDescriptors);
         mpORBvocabulary->transform(vCurrentDesc,mBowVec,mFeatVec,4);
+
+        vector<cv::Mat> vSemCurrentDesc = Converter::toDescriptorVector(mSemDescriptors);
+        mpORBvocabulary->transform(vSemCurrentDesc,mSemBowVec,mSemFeatVec,4);
     }
 }
 
@@ -538,7 +553,7 @@ void Frame::ComputeStereoMatches()
             if(uR>=minU && uR<=maxU)
             {
                 const cv::Mat &dR = mDescriptorsRight.row(iR);
-                const int dist = ORBmatcher::DescriptorDistance(dL,dR);
+                const int dist = ORBmatcher::DescriptorDistance(dL,dR, 0);
 
                 if(dist<bestDist)
                 {

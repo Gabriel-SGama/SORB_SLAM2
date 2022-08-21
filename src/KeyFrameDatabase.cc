@@ -17,11 +17,18 @@
 * You should have received a copy of the GNU General Public License
 * along with ORB-SLAM2. If not, see <http://www.gnu.org/licenses/>.
 */
+#include "KeyFrameDatabase.h"   // IWYU pragma: associated
 
-#include "KeyFrameDatabase.h"
+#include <algorithm>
+#include <iosfwd>
+#include <map>
+#include <memory>
+#include <set>
+#include <utility>
 
 #include "KeyFrame.h"
 #include "Thirdparty/DBoW2/DBoW2/BowVector.h"
+#include "Frame.h"
 
 #include<mutex>
 

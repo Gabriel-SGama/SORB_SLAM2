@@ -21,6 +21,13 @@
 #ifndef KEYFRAME_H
 #define KEYFRAME_H
 
+#include <stddef.h>
+#include <opencv2/core.hpp>
+#include <mutex>
+#include <map>
+#include <set>
+#include <vector>
+
 #include "MapPoint.h"
 #include "Thirdparty/DBoW2/DBoW2/BowVector.h"
 #include "Thirdparty/DBoW2/DBoW2/FeatureVector.h"
@@ -28,9 +35,6 @@
 #include "ORBextractor.h"
 #include "Frame.h"
 #include "KeyFrameDatabase.h"
-
-#include <mutex>
-
 
 namespace ORB_SLAM2
 {
@@ -164,11 +168,11 @@ public:
     const std::vector<cv::KeyPoint> mvKeysUn;
     const std::vector<float> mvuRight; // negative value for monocular points
     const std::vector<float> mvDepth; // negative value for monocular points
-    const cv::Mat mDescriptors;
+    const cv::Mat mDescriptors, mSemDescriptors;
 
     //BoW
-    DBoW2::BowVector mBowVec;
-    DBoW2::FeatureVector mFeatVec;
+    DBoW2::BowVector mBowVec, mSemBowVec;
+    DBoW2::FeatureVector mFeatVec, mSemFeatVec;
 
     // Pose relative to parent (this is computed when bad flag is activated)
     cv::Mat mTcp;

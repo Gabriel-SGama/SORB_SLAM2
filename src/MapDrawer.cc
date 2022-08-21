@@ -18,10 +18,19 @@
 * along with ORB-SLAM2. If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "MapDrawer.h"
+#include "MapDrawer.h"   // IWYU pragma: associated
+
+#include <pangolin/pangolin.h>
+#include <GL/glew.h>
+#include <stddef.h>
+#include <mutex>
+#include <set>
+#include <vector>
+
 #include "MapPoint.h"
 #include "KeyFrame.h"
-#include <pangolin/pangolin.h>
+#include "Map.h"
+
 #include <mutex>
 
 namespace ORB_SLAM2

@@ -53,15 +53,25 @@
 *
 */
 
+#include "ORBextractor.h"   // IWYU pragma: associated
+
+#include <assert.h>
+#include <ext/alloc_traits.h>
+#include <math.h>
+#include <vector>
+#include <algorithm>
+#include <cstddef>
+#include <iterator>
+#include <memory>
+#include <type_traits>
+#include <utility>
+#include <iostream>
 
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/features2d/features2d.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 #include <vector>
-
-#include "ORBextractor.h"
-
 
 using namespace cv;
 using namespace std;
@@ -146,6 +156,47 @@ static void computeOrbDescriptor(const KeyPoint& kpt,
     #undef GET_VALUE
 }
 
+static void computeSemDescriptor(const KeyPoint& kpt,
+                                 const Mat& label, const Point* pattern,
+                                 uchar* desc)
+{
+    float angle = (float)kpt.angle*factorPI;
+    float a = (float)cos(angle), b = (float)sin(angle);
+
+    const uchar* center = &label.at<uchar>(cvRound(kpt.pt.y), cvRound(kpt.pt.x));
+    const int step = (int)label.step;
+
+    #define GET_VALUE(idx) \
+        center[cvRound(pattern[idx].x*b + pattern[idx].y*a)*step + \
+               cvRound(pattern[idx].x*a - pattern[idx].y*b)]
+
+
+    for (int i = 0; i < 32; ++i)
+        desc[i] = GET_VALUE(i);
+ 
+    #undef GET_VALUE
+}
+
+static int sem_pattern_32[32*2] =
+{
+    6,1,5,3,
+    3,5,1,6,
+    -1,6,-3,5,
+    -5,3,-6,1,
+    -6,-1,-5,-3,
+    -3,-5,-1,-6,
+    1,-6,3,-5,
+    5,-3,6,-1,
+    10,4,8,8,
+    4,10,0,11,
+    -4,10,-8,8,
+    -10,4,-11,0,
+    -10,-4,-8,-8,
+    -4,-10,0,-11,
+    4,-10,8,-8,
+    10,-4,11,0
+};
+
 
 static int bit_pattern_31_[256*4] =
 {
@@ -161,7 +212,7 @@ static int bit_pattern_31_[256*4] =
     10,4, 11,9/*mean (0.122065), correlation (0.093285)*/,
     -13,-8, -8,-9/*mean (0.162787), correlation (0.0942748)*/,
     -11,7, -9,12/*mean (0.21561), correlation (0.0974438)*/,
-    7,7, 12,6/*mean (0.160583), correlation (0.130064)*/,
+    7,7, 12,6/*mean (0.160583), correlation (0.130016)*/,
     -4,-5, -3,0/*mean (0.228171), correlation (0.132998)*/,
     -13,2, -12,-3/*mean (0.00997526), correlation (0.145926)*/,
     -9,0, -7,5/*mean (0.198234), correlation (0.143636)*/,
@@ -431,6 +482,7 @@ ORBextractor::ORBextractor(int _nfeatures, float _scaleFactor, int _nlevels,
     }
 
     mvImagePyramid.resize(nlevels);
+    mvLabelPyramid.resize(nlevels);
 
     mnFeaturesPerLevel.resize(nlevels);
     float factor = 1.0f / scaleFactor;
@@ -446,8 +498,11 @@ ORBextractor::ORBextractor(int _nfeatures, float _scaleFactor, int _nlevels,
     mnFeaturesPerLevel[nlevels-1] = std::max(nfeatures - sumFeatures, 0);
 
     const int npoints = 512;
+    const int nsempoints = 32;
     const Point* pattern0 = (const Point*)bit_pattern_31_;
+    const Point* pattern_sem0 = (const Point*)sem_pattern_32;
     std::copy(pattern0, pattern0 + npoints, std::back_inserter(pattern));
+    std::copy(pattern_sem0, pattern_sem0 + nsempoints, std::back_inserter(sem_pattern));
 
     //This is for orientation
     // pre-compute the end of a row in a circular patch
@@ -1031,42 +1086,67 @@ void ORBextractor::ComputeKeyPointsOld(std::vector<std::vector<KeyPoint> > &allK
         computeOrientation(mvImagePyramid[level], allKeypoints[level], umax);
 }
 
-static void computeDescriptors(const Mat& image, vector<KeyPoint>& keypoints, Mat& descriptors,
-                               const vector<Point>& pattern)
+static void computeDescriptors(const Mat& image, const Mat& label, vector<KeyPoint>& keypoints, Mat& descriptors, Mat& semDescriptors,
+                               const vector<Point>& pattern, const vector<Point>& sem_pattern)
 {
     descriptors = Mat::zeros((int)keypoints.size(), 32, CV_8UC1);
+    semDescriptors = Mat::zeros((int)keypoints.size(), 32, CV_8UC1);
 
-    for (size_t i = 0; i < keypoints.size(); i++)
+    //TODO: optimize for loop
+    for (size_t i = 0; i < keypoints.size(); i++){
         computeOrbDescriptor(keypoints[i], image, &pattern[0], descriptors.ptr((int)i));
+        
+        if(!label.empty())
+            computeSemDescriptor(keypoints[i], label, &pattern[0]/*&sem_pattern[0]*/, semDescriptors.ptr((int)i));
+    }
 }
 
-void ORBextractor::operator()( InputArray _image, InputArray _mask, vector<KeyPoint>& _keypoints,
-                      OutputArray _descriptors)
+void ORBextractor::operator()( InputArray _image, InputArray _label, InputArray _mask, vector<KeyPoint>& _keypoints,
+                      OutputArray _descriptors, OutputArray _semDescriptors)
 { 
     if(_image.empty())
         return;
 
+    if(_label.empty())
+        return;
+    
+
     Mat image = _image.getMat();
     assert(image.type() == CV_8UC1 );
 
+
+    Mat label = _label.getMat();
+    assert(label.type() == CV_8UC1 );
+    // if(!_label.empty()){
+    //     label = _label.getMat();
+    // } 
+    
     // Pre-compute the scale pyramid
     ComputePyramid(image);
+    ComputeSemPyramid(label);
 
     vector < vector<KeyPoint> > allKeypoints;
     ComputeKeyPointsOctTree(allKeypoints);
     //ComputeKeyPointsOld(allKeypoints);
 
-    Mat descriptors;
+    Mat descriptors, semDescriptors;
 
     int nkeypoints = 0;
     for (int level = 0; level < nlevels; ++level)
         nkeypoints += (int)allKeypoints[level].size();
-    if( nkeypoints == 0 )
+
+    if( nkeypoints == 0 ){
         _descriptors.release();
+        _semDescriptors.release();
+    }
     else
     {
         _descriptors.create(nkeypoints, 32, CV_8U);
         descriptors = _descriptors.getMat();
+
+        //semantic part - change type maybe?
+        _semDescriptors.create(nkeypoints, 32, CV_8U);
+        semDescriptors = _semDescriptors.getMat();
     }
 
     _keypoints.clear();
@@ -1083,11 +1163,13 @@ void ORBextractor::operator()( InputArray _image, InputArray _mask, vector<KeyPo
 
         // preprocess the resized image
         Mat workingMat = mvImagePyramid[level].clone();
+        Mat workingLabel = mvLabelPyramid[level].clone();
         GaussianBlur(workingMat, workingMat, Size(7, 7), 2, 2, BORDER_REFLECT_101);
 
         // Compute the descriptors
         Mat desc = descriptors.rowRange(offset, offset + nkeypointsLevel);
-        computeDescriptors(workingMat, keypoints, desc, pattern);
+        Mat semDesc = semDescriptors.rowRange(offset, offset + nkeypointsLevel);
+        computeDescriptors(workingMat, workingLabel, keypoints, desc, semDesc, pattern, sem_pattern);
 
         offset += nkeypointsLevel;
 
@@ -1096,7 +1178,7 @@ void ORBextractor::operator()( InputArray _image, InputArray _mask, vector<KeyPo
         {
             float scale = mvScaleFactor[level]; //getScale(level, firstLevel, scaleFactor);
             for (vector<KeyPoint>::iterator keypoint = keypoints.begin(),
-                 keypointEnd = keypoints.end(); keypoint != keypointEnd; ++keypoint)
+                keypointEnd = keypoints.end(); keypoint != keypointEnd; ++keypoint)
                 keypoint->pt *= scale;
         }
         // And add the keypoints to the output
@@ -1130,5 +1212,34 @@ void ORBextractor::ComputePyramid(cv::Mat image)
     }
 
 }
+
+void ORBextractor::ComputeSemPyramid(cv::Mat label)
+{
+    for (int level = 0; level < nlevels; ++level)
+    {
+        float scale = mvInvScaleFactor[level];
+        Size sz(cvRound((float)label.cols*scale), cvRound((float)label.rows*scale));
+        Size wholeSize(sz.width + EDGE_THRESHOLD*2, sz.height + EDGE_THRESHOLD*2);
+        Mat temp(wholeSize, label.type()), masktemp;
+        mvLabelPyramid[level] = temp(Rect(EDGE_THRESHOLD, EDGE_THRESHOLD, sz.width, sz.height));
+
+        // Compute the resized label
+        if( level != 0 )
+        {
+            resize(mvLabelPyramid[level-1], mvLabelPyramid[level], sz, 0, 0, INTER_LINEAR);
+
+            copyMakeBorder(mvLabelPyramid[level], temp, EDGE_THRESHOLD, EDGE_THRESHOLD, EDGE_THRESHOLD, EDGE_THRESHOLD,
+                           BORDER_REFLECT_101+BORDER_ISOLATED);            
+        }
+        else
+        {
+            copyMakeBorder(label, temp, EDGE_THRESHOLD, EDGE_THRESHOLD, EDGE_THRESHOLD, EDGE_THRESHOLD,
+                           BORDER_REFLECT_101);            
+        }
+    }
+
+}
+
+
 
 } //namespace ORB_SLAM

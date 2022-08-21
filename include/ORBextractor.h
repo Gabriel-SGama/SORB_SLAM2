@@ -25,7 +25,6 @@
 #include <list>
 #include <opencv/cv.h>
 
-
 namespace ORB_SLAM2
 {
 
@@ -56,9 +55,9 @@ public:
     // Compute the ORB features and descriptors on an image.
     // ORB are dispersed on the image using an octree.
     // Mask is ignored in the current implementation.
-    void operator()( cv::InputArray image, cv::InputArray mask,
+    void operator()( cv::InputArray image, cv::InputArray label, cv::InputArray mask,
       std::vector<cv::KeyPoint>& keypoints,
-      cv::OutputArray descriptors);
+      cv::OutputArray descriptors, cv::OutputArray semDesc);
 
     int inline GetLevels(){
         return nlevels;}
@@ -83,16 +82,18 @@ public:
     }
 
     std::vector<cv::Mat> mvImagePyramid;
+    std::vector<cv::Mat> mvLabelPyramid;
 
 protected:
 
     void ComputePyramid(cv::Mat image);
+    void ComputeSemPyramid(cv::Mat label);
     void ComputeKeyPointsOctTree(std::vector<std::vector<cv::KeyPoint> >& allKeypoints);    
     std::vector<cv::KeyPoint> DistributeOctTree(const std::vector<cv::KeyPoint>& vToDistributeKeys, const int &minX,
                                            const int &maxX, const int &minY, const int &maxY, const int &nFeatures, const int &level);
 
     void ComputeKeyPointsOld(std::vector<std::vector<cv::KeyPoint> >& allKeypoints);
-    std::vector<cv::Point> pattern;
+    std::vector<cv::Point> pattern, sem_pattern;
 
     int nfeatures;
     double scaleFactor;

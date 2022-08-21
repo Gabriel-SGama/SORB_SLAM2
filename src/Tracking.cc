@@ -19,9 +19,10 @@
 */
 
 
-#include "Tracking.h"
+#include "Tracking.h"   // IWYU pragma: associated
 
 #include<opencv2/core/core.hpp>
+#include<opencv2/imgproc/imgproc_c.h>
 #include<opencv2/features2d/features2d.hpp>
 
 #include"ORBmatcher.h"
@@ -32,6 +33,8 @@
 
 #include"Optimizer.h"
 #include"PnPsolver.h"
+
+#include <unistd.h>
 
 #include<iostream>
 
@@ -235,9 +238,10 @@ cv::Mat Tracking::GrabImageRGBD(const cv::Mat &imRGB,const cv::Mat &imD, const d
 }
 
 
-cv::Mat Tracking::GrabImageMonocular(const cv::Mat &im, const double &timestamp)
+cv::Mat Tracking::GrabImageMonocular(const cv::Mat &im, const cv::Mat &label,  const double &timestamp)
 {
     mImGray = im;
+    mlabel = label;
 
     if(mImGray.channels()==3)
     {
@@ -255,9 +259,9 @@ cv::Mat Tracking::GrabImageMonocular(const cv::Mat &im, const double &timestamp)
     }
 
     if(mState==NOT_INITIALIZED || mState==NO_IMAGES_YET)
-        mCurrentFrame = Frame(mImGray,timestamp,mpIniORBextractor,mpORBVocabulary,mK,mDistCoef,mbf,mThDepth);
+        mCurrentFrame = Frame(mImGray,mlabel,timestamp,mpIniORBextractor,mpORBVocabulary,mK,mDistCoef,mbf,mThDepth);
     else
-        mCurrentFrame = Frame(mImGray,timestamp,mpORBextractorLeft,mpORBVocabulary,mK,mDistCoef,mbf,mThDepth);
+        mCurrentFrame = Frame(mImGray,mlabel,timestamp,mpORBextractorLeft,mpORBVocabulary,mK,mDistCoef,mbf,mThDepth);
 
     Track();
 
@@ -488,19 +492,19 @@ void Tracking::Track()
     // Store frame pose information to retrieve the complete camera trajectory afterwards.
     if(!mCurrentFrame.mTcw.empty())
     {
-        cv::Mat Tcr = mCurrentFrame.mTcw*mCurrentFrame.mpReferenceKF->GetPoseInverse();
-        mlRelativeFramePoses.push_back(Tcr);
-        mlpReferences.push_back(mpReferenceKF);
-        mlFrameTimes.push_back(mCurrentFrame.mTimeStamp);
-        mlbLost.push_back(mState==LOST);
+        TrackedFrame tracked_frame;
+        tracked_frame.relative_frame_pose = mCurrentFrame.mTcw*mCurrentFrame.mpReferenceKF->GetPoseInverse();
+        tracked_frame.reference_keyframe = mpReferenceKF;
+        tracked_frame.time = mCurrentFrame.mTimeStamp;
+        tracked_frame.lost = (mState == LOST);
+        tracked_frames.push_back(tracked_frame);
     }
     else
     {
         // This can happen if tracking is lost
-        mlRelativeFramePoses.push_back(mlRelativeFramePoses.back());
-        mlpReferences.push_back(mlpReferences.back());
-        mlFrameTimes.push_back(mlFrameTimes.back());
-        mlbLost.push_back(mState==LOST);
+        TrackedFrame tracked_frame = tracked_frames.back();
+        tracked_frame.lost = (mState == LOST);
+        tracked_frames.push_back(tracked_frame);
     }
 
 }
@@ -562,7 +566,6 @@ void Tracking::StereoInitialization()
 
 void Tracking::MonocularInitialization()
 {
-
     if(!mpInitializer)
     {
         // Set Reference Frame
@@ -802,7 +805,7 @@ void Tracking::UpdateLastFrame()
 {
     // Update pose according to reference keyframe
     KeyFrame* pRef = mLastFrame.mpReferenceKF;
-    cv::Mat Tlr = mlRelativeFramePoses.back();
+    cv::Mat Tlr = tracked_frames.back().relative_frame_pose;
 
     mLastFrame.SetPose(Tlr*pRef->GetPose());
 
@@ -1540,10 +1543,8 @@ void Tracking::Reset()
         mpInitializer = static_cast<Initializer*>(NULL);
     }
 
-    mlRelativeFramePoses.clear();
-    mlpReferences.clear();
-    mlFrameTimes.clear();
-    mlbLost.clear();
+    tracked_frames.clear();
+
 
     if(mpViewer)
         mpViewer->Release();

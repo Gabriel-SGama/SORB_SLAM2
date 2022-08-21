@@ -18,10 +18,18 @@
 * along with ORB-SLAM2. If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "Viewer.h"
-#include <pangolin/pangolin.h>
+#include "Viewer.h"   // IWYU pragma: associated
 
+#include <pangolin/pangolin.h>
+#include <unistd.h>
+#include <GL/glew.h>
+#include <opencv2/core.hpp>
+#include <opencv2/highgui.hpp>
 #include <mutex>
+
+#include "FrameDrawer.h"
+#include "MapDrawer.h"
+#include "System.h"
 
 namespace ORB_SLAM2
 {
@@ -135,7 +143,10 @@ void Viewer::Run()
         pangolin::FinishFrame();
 
         cv::Mat im = mpFrameDrawer->DrawFrame();
+        cv::Mat label = mpFrameDrawer->GetLabel();
+
         cv::imshow("ORB-SLAM2: Current Frame",im);
+        cv::imshow("ORB-SLAM2: Current Label",label);
         cv::waitKey(mT);
 
         if(menuReset)

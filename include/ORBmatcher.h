@@ -41,7 +41,8 @@ public:
     ORBmatcher(float nnratio=0.6, bool checkOri=true);
 
     // Computes the Hamming distance between two ORB descriptors
-    static int DescriptorDistance(const cv::Mat &a, const cv::Mat &b);
+    static int DescriptorDistance(const cv::Mat &a, const cv::Mat &b, int test);
+    static int semDescriptorDistance(const cv::Mat &a, const cv::Mat &b);
 
     // Search matches between Frame keypoints and projected MapPoints. Returns number of matches
     // Used to track the local map (Tracking)
@@ -87,7 +88,7 @@ public:
     static const int TH_LOW;
     static const int TH_HIGH;
     static const int HISTO_LENGTH;
-
+    static const int SEM_DESC_SIZE;
 
 protected:
 

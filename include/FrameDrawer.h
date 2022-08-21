@@ -47,13 +47,14 @@ public:
 
     // Draw last processed frame.
     cv::Mat DrawFrame();
-
+    inline cv::Mat GetLabel() {return mLabel;};
 protected:
 
     void DrawTextInfo(cv::Mat &im, int nState, cv::Mat &imText);
 
     // Info of the frame to be drawn
     cv::Mat mIm;
+    cv::Mat mLabel; //semantic label of current frame
     int N;
     vector<cv::KeyPoint> mvCurrentKeys;
     vector<bool> mvbMap, mvbVO;

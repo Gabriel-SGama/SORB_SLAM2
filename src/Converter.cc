@@ -18,8 +18,11 @@
 * along with ORB-SLAM2. If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include "Converter.h"   // IWYU pragma: associated
 
-#include "Converter.h"
+#include <Eigen/Core>
+#include <Eigen/Geometry>
+#include <algorithm>
 
 namespace ORB_SLAM2
 {

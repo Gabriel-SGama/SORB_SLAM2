@@ -18,9 +18,21 @@
 * along with ORB-SLAM2. If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "KeyFrame.h"
+#include "KeyFrame.h"   // IWYU pragma: associated
+
+#include <ext/alloc_traits.h>
+#include <math.h>
+#include <algorithm>
+#include <list>
+#include <memory>
+#include <utility>
+
 #include "Converter.h"
-#include "ORBmatcher.h"
+#include "Frame.h"
+#include "KeyFrameDatabase.h"
+#include "Map.h"
+#include "MapPoint.h"
+
 #include<mutex>
 
 namespace ORB_SLAM2
@@ -35,8 +47,8 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB):
     mnLoopQuery(0), mnLoopWords(0), mnRelocQuery(0), mnRelocWords(0), mnBAGlobalForKF(0),
     fx(F.fx), fy(F.fy), cx(F.cx), cy(F.cy), invfx(F.invfx), invfy(F.invfy),
     mbf(F.mbf), mb(F.mb), mThDepth(F.mThDepth), N(F.N), mvKeys(F.mvKeys), mvKeysUn(F.mvKeysUn),
-    mvuRight(F.mvuRight), mvDepth(F.mvDepth), mDescriptors(F.mDescriptors.clone()),
-    mBowVec(F.mBowVec), mFeatVec(F.mFeatVec), mnScaleLevels(F.mnScaleLevels), mfScaleFactor(F.mfScaleFactor),
+    mvuRight(F.mvuRight), mvDepth(F.mvDepth), mDescriptors(F.mDescriptors.clone()),mSemDescriptors(F.mSemDescriptors.clone()),
+    mBowVec(F.mBowVec), mFeatVec(F.mFeatVec), mSemBowVec(F.mSemBowVec), mSemFeatVec(F.mSemFeatVec), mnScaleLevels(F.mnScaleLevels), mfScaleFactor(F.mfScaleFactor),
     mfLogScaleFactor(F.mfLogScaleFactor), mvScaleFactors(F.mvScaleFactors), mvLevelSigma2(F.mvLevelSigma2),
     mvInvLevelSigma2(F.mvInvLevelSigma2), mnMinX(F.mnMinX), mnMinY(F.mnMinY), mnMaxX(F.mnMaxX),
     mnMaxY(F.mnMaxY), mK(F.mK), mvpMapPoints(F.mvpMapPoints), mpKeyFrameDB(pKFDB),
@@ -61,9 +73,11 @@ void KeyFrame::ComputeBoW()
     if(mBowVec.empty() || mFeatVec.empty())
     {
         vector<cv::Mat> vCurrentDesc = Converter::toDescriptorVector(mDescriptors);
+        vector<cv::Mat> vCurrentSemDesc = Converter::toDescriptorVector(mSemDescriptors);
         // Feature vector associate features with nodes in the 4th level (from leaves up)
         // We assume the vocabulary tree has 6 levels, change the 4 otherwise
         mpORBvocabulary->transform(vCurrentDesc,mBowVec,mFeatVec,4);
+        mpORBvocabulary->transform(vCurrentSemDesc,mSemBowVec,mSemFeatVec,4);
     }
 }
 

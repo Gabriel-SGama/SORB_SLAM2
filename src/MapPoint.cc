@@ -18,8 +18,19 @@
 * along with ORB-SLAM2. If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "MapPoint.h"
+#include "MapPoint.h"   // IWYU pragma: associated
+
+#include <limits.h>
+#include <math.h>
+#include <algorithm>
+#include <memory>
+#include <utility>
+#include <vector>
+
 #include "ORBmatcher.h"
+#include "Frame.h"
+#include "KeyFrame.h"
+#include "Map.h"
 
 #include<mutex>
 
@@ -242,7 +253,7 @@ float MapPoint::GetFoundRatio()
 void MapPoint::ComputeDistinctiveDescriptors()
 {
     // Retrieve all observed descriptors
-    vector<cv::Mat> vDescriptors;
+    vector<cv::Mat> vDescriptors, vSemDescriptors;
 
     map<KeyFrame*,size_t> observations;
 
@@ -257,16 +268,18 @@ void MapPoint::ComputeDistinctiveDescriptors()
         return;
 
     vDescriptors.reserve(observations.size());
+    vSemDescriptors.reserve(observations.size());
 
     for(map<KeyFrame*,size_t>::iterator mit=observations.begin(), mend=observations.end(); mit!=mend; mit++)
     {
         KeyFrame* pKF = mit->first;
-
-        if(!pKF->isBad())
+        if(!pKF->isBad()){
             vDescriptors.push_back(pKF->mDescriptors.row(mit->second));
+            vSemDescriptors.push_back(pKF->mSemDescriptors.row(mit->second));
+        }
     }
 
-    if(vDescriptors.empty())
+    if(vDescriptors.empty() || vSemDescriptors.empty())
         return;
 
     // Compute distances between them
@@ -278,7 +291,7 @@ void MapPoint::ComputeDistinctiveDescriptors()
         Distances[i][i]=0;
         for(size_t j=i+1;j<N;j++)
         {
-            int distij = ORBmatcher::DescriptorDistance(vDescriptors[i],vDescriptors[j]);
+            int distij = ORBmatcher::DescriptorDistance(vDescriptors[i],vDescriptors[j], 0) + ORBmatcher::semDescriptorDistance(vSemDescriptors[i], vSemDescriptors[j]);
             Distances[i][j]=distij;
             Distances[j][i]=distij;
         }
@@ -303,6 +316,7 @@ void MapPoint::ComputeDistinctiveDescriptors()
     {
         unique_lock<mutex> lock(mMutexFeatures);
         mDescriptor = vDescriptors[BestIdx].clone();
+        mSemDescriptor = vSemDescriptors[BestIdx].clone();
     }
 }
 
@@ -311,6 +325,13 @@ cv::Mat MapPoint::GetDescriptor()
     unique_lock<mutex> lock(mMutexFeatures);
     return mDescriptor.clone();
 }
+
+cv::Mat MapPoint::GetSemDescriptor()
+{
+    unique_lock<mutex> lock(mMutexFeatures);
+    return mSemDescriptor.clone();
+}
+
 
 int MapPoint::GetIndexInKeyFrame(KeyFrame *pKF)
 {

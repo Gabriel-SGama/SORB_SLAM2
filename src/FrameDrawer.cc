@@ -17,12 +17,16 @@
 * You should have received a copy of the GNU General Public License
 * along with ORB-SLAM2. If not, see <http://www.gnu.org/licenses/>.
 */
+#include "FrameDrawer.h"   // IWYU pragma: associated
 
-#include "FrameDrawer.h"
+#include <opencv2/imgproc.hpp>
+#include <memory>
+#include <ostream>
+
 #include "Tracking.h"
-
-#include <opencv2/core/core.hpp>
-#include <opencv2/highgui/highgui.hpp>
+#include "Frame.h"
+#include "Map.h"
+#include "MapPoint.h"
 
 #include<mutex>
 
@@ -168,6 +172,7 @@ void FrameDrawer::Update(Tracking *pTracker)
 {
     unique_lock<mutex> lock(mMutex);
     pTracker->mImGray.copyTo(mIm);
+    pTracker->mlabel.copyTo(mLabel);
     mvCurrentKeys=pTracker->mCurrentFrame.mvKeys;
     N = mvCurrentKeys.size();
     mvbVO = vector<bool>(N,false);
